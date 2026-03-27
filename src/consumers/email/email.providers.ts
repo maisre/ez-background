@@ -17,7 +17,7 @@ const OrgSchema = new mongoose.Schema({
 });
 
 const UserSchema = new mongoose.Schema({
-  username: String,
+  email: String,
   password: String,
   activeOrg: { type: mongoose.Schema.Types.ObjectId, ref: 'org', required: false },
 });

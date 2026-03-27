@@ -1,6 +1,6 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
-import { Resend } from 'resend';
-import { Model } from 'mongoose';
+import { Inject, Injectable, Logger } from "@nestjs/common";
+import { Resend } from "resend";
+import { Model } from "mongoose";
 
 interface Org {
   name: string;
@@ -8,19 +8,19 @@ interface Org {
 }
 
 interface User {
-  username: string;
+  email: string;
 }
 
 @Injectable()
 export class EmailService {
   private readonly resend: Resend;
   private readonly logger = new Logger(EmailService.name);
-  private readonly from = 'EZ Snippet <noreply@ezsnippet.com>';
+  private readonly from = "EZ Snippet <noreply@mail.ez-snippets.com>";
 
   constructor(
-    @Inject('RESEND_API_KEY') private readonly apiKey: string,
-    @Inject('ORG_MODEL') private readonly orgModel: Model<Org>,
-    @Inject('USER_MODEL') private readonly userModel: Model<User>,
+    @Inject("RESEND_API_KEY") private readonly apiKey: string,
+    @Inject("ORG_MODEL") private readonly orgModel: Model<Org>,
+    @Inject("USER_MODEL") private readonly userModel: Model<User>
   ) {
     this.resend = new Resend(this.apiKey);
   }
@@ -28,49 +28,87 @@ export class EmailService {
   async handleMessage(body: Record<string, any>): Promise<void> {
     const to = await this.resolveRecipient(body);
     if (!to) {
-      this.logger.warn(`Could not resolve recipient for message: ${JSON.stringify(body)}`);
+      this.logger.warn(
+        `Could not resolve recipient for message: ${JSON.stringify(body)}`
+      );
       return;
     }
 
     switch (body.type) {
-      case 'welcome_email':
-        await this.send(to, 'Welcome to EZ Snippet!', this.welcomeHtml(body.username));
+      case "welcome_email":
+        await this.send(
+          to,
+          "Welcome to EZ Snippet!",
+          this.welcomeHtml(body.email)
+        );
         break;
-      case 'subscription_confirmed':
-        await this.send(to, 'Subscription Confirmed', this.subscriptionConfirmedHtml(body.orgName, body.plan));
+      case "subscription_confirmed":
+        await this.send(
+          to,
+          "Subscription Confirmed",
+          this.subscriptionConfirmedHtml(body.orgName, body.plan)
+        );
         break;
-      case 'subscription_canceled':
-        await this.send(to, 'Subscription Canceled', this.subscriptionCanceledHtml(body.orgName, body.plan));
+      case "subscription_canceled":
+        await this.send(
+          to,
+          "Subscription Canceled",
+          this.subscriptionCanceledHtml(body.orgName, body.plan)
+        );
         break;
-      case 'subscription_expired':
-        await this.send(to, 'Subscription Expired', this.subscriptionExpiredHtml(body.orgName, body.plan));
+      case "subscription_expired":
+        await this.send(
+          to,
+          "Subscription Expired",
+          this.subscriptionExpiredHtml(body.orgName, body.plan)
+        );
         break;
-      case 'payment_succeeded':
-        await this.send(to, 'Payment Received', this.paymentSucceededHtml(body.orgName, body.plan, body.amountPaid, body.currency));
+      case "payment_succeeded":
+        await this.send(
+          to,
+          "Payment Received",
+          this.paymentSucceededHtml(
+            body.orgName,
+            body.plan,
+            body.amountPaid,
+            body.currency
+          )
+        );
         break;
-      case 'payment_failed':
-        await this.send(to, 'Payment Failed', this.paymentFailedHtml(body.orgName, body.plan, body.amountDue, body.currency));
+      case "payment_failed":
+        await this.send(
+          to,
+          "Payment Failed",
+          this.paymentFailedHtml(
+            body.orgName,
+            body.plan,
+            body.amountDue,
+            body.currency
+          )
+        );
         break;
       default:
         this.logger.warn(`Unknown email type: ${body.type}`);
     }
   }
 
-  private async resolveRecipient(body: Record<string, any>): Promise<string | null> {
+  private async resolveRecipient(
+    body: Record<string, any>
+  ): Promise<string | null> {
     // Welcome emails include userId directly
     if (body.userId) {
       const user = await this.userModel.findById(body.userId).exec();
-      return user?.username || null;
+      return user?.email || null;
     }
 
     // All other emails include orgId — find the org owner's email
     if (body.orgId) {
       const org = await this.orgModel.findById(body.orgId).exec();
       if (!org) return null;
-      const owner = org.members?.find((m) => m.role === 'owner');
+      const owner = org.members?.find((m) => m.role === "owner");
       if (!owner) return null;
       const user = await this.userModel.findById(owner.user).exec();
-      return user?.username || null;
+      return user?.email || null;
     }
 
     return null;
@@ -120,13 +158,23 @@ export class EmailService {
     <p>Resubscribe to regain access to your plan features.</p>`;
   }
 
-  private paymentSucceededHtml(orgName: string, plan: string, amountPaid: string, currency: string): string {
+  private paymentSucceededHtml(
+    orgName: string,
+    plan: string,
+    amountPaid: string,
+    currency: string
+  ): string {
     return `<h1>Payment received</h1>
     <p>We've received your payment of <strong>${amountPaid} ${currency.toUpperCase()}</strong> for the <strong>${plan}</strong> plan (${orgName}).</p>
     <p>No action is needed on your part.</p>`;
   }
 
-  private paymentFailedHtml(orgName: string, plan: string, amountDue: string, currency: string): string {
+  private paymentFailedHtml(
+    orgName: string,
+    plan: string,
+    amountDue: string,
+    currency: string
+  ): string {
     return `<h1>Payment failed</h1>
     <p>We were unable to process your payment of <strong>${amountDue} ${currency.toUpperCase()}</strong> for the <strong>${plan}</strong> plan (${orgName}).</p>
     <p>Please update your payment method in your account settings to avoid service interruption.</p>`;
