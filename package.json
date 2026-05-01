@@ -24,6 +24,7 @@
     "@nestjs/core": "^11.0.1",
     "@nestjs/platform-express": "^11.0.1",
     "@nestjs/schedule": "^6.1.1",
+    "@sentry/nestjs": "^10.49.0",
     "@ssut/nestjs-sqs": "^3.0.1",
     "dotenv": "^17.2.3",
     "mongoose": "^8.18.3",

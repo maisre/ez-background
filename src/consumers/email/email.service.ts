@@ -42,6 +42,13 @@ export class EmailService {
           this.welcomeHtml(body.email)
         );
         break;
+      case "password_reset_email":
+        await this.send(
+          to,
+          "Reset your EZ Snippet password",
+          this.passwordResetHtml(body.resetUrl)
+        );
+        break;
       case "subscription_confirmed":
         await this.send(
           to,
@@ -138,6 +145,13 @@ export class EmailService {
     return `<h1>Welcome, ${username}!</h1>
     <p>Thanks for signing up for EZ Snippet. You're all set to start building beautiful pages with drag-and-drop snippets.</p>
     <p>If you have any questions, just reply to this email.</p>`;
+  }
+
+  private passwordResetHtml(resetUrl: string): string {
+    return `<h1>Reset your password</h1>
+    <p>We received a request to reset your EZ Snippet password. Click the link below to choose a new one:</p>
+    <p><a href="${resetUrl}">${resetUrl}</a></p>
+    <p>This link will expire in 1 hour. If you didn't request a password reset, you can safely ignore this email.</p>`;
   }
 
   private subscriptionConfirmedHtml(orgName: string, plan: string): string {
