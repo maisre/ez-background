@@ -1,8 +1,8 @@
 import { Module } from '@nestjs/common';
-import { SnippetCleanupCron } from './snippet-cleanup.cron.js';
-import { UsageReportCron } from './usage-report.cron.js';
 
+// Placeholder for future scheduled jobs. ScheduleModule is wired in app.module
+// so a @Cron provider added here will run without further setup.
 @Module({
-  providers: [SnippetCleanupCron, UsageReportCron],
+  providers: [],
 })
 export class CronModule {}
