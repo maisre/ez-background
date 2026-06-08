@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build
+        run: npx nest build
+
+      # --passWithNoTests: this service has no specs yet; the step still guards
+      # against a broken test setup once specs are added.
+      - name: Unit tests
+        run: npx jest --passWithNoTests
+
+      # No lint step: eslint is not installed/configured in this repo. Add an
+      # eslint config + deps (see ez-api/ez-view) to enable linting here.
