@@ -51,7 +51,10 @@ export class ScreenshotService implements OnModuleDestroy {
     id: string,
     orgId: string,
   ): Promise<string> {
-    const url = `${this.viewUrl}/view/${type}/${id}`;
+    // Layouts render a bottom switcher overlay for human viewers; suppress it
+    // for the thumbnail so the card shows only page content.
+    const suffix = type === 'layout' ? '?chrome=false' : '';
+    const url = `${this.viewUrl}/view/${type}/${id}${suffix}`;
     const browser = await this.getBrowser();
     const context = await browser.newContext({
       viewport: { width: this.width, height: this.height },

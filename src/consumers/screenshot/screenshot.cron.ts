@@ -35,12 +35,9 @@ export class ScreenshotCron {
     }
 
     await this.sweep(this.pages, 'page');
-
-    // Layouts intentionally not swept yet: ez-view has no standalone layout
-    // render route, so there is nothing for the worker to screenshot. The
-    // schema fields and the generic pipeline below are ready — enable this once
-    // ez-view exposes `GET /view/layout/:id`.
-    // await this.sweep(this.layouts, 'layout');
+    // ez-view now exposes GET /view/layout/:id (renders nav + first subpage +
+    // footer), so layouts are captured too.
+    await this.sweep(this.layouts, 'layout');
   }
 
   private async sweep(model: Model<any>, type: ScreenshotTarget): Promise<void> {
