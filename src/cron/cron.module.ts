@@ -1,8 +1,9 @@
 import { Module } from '@nestjs/common';
+import { ShutterstockCleanupCron } from './shutterstock-cleanup.cron.js';
 
-// Placeholder for future scheduled jobs. ScheduleModule is wired in app.module
-// so a @Cron provider added here will run without further setup.
+// Scheduled jobs. ScheduleModule is wired in app.module, and ConfigModule is
+// global, so a @Cron provider added here runs without further setup.
 @Module({
-  providers: [],
+  providers: [ShutterstockCleanupCron],
 })
 export class CronModule {}

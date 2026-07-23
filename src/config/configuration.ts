@@ -45,5 +45,20 @@ export default () => ({
     thumbWidth: parseInt(process.env.SCREENSHOT_THUMB_WIDTH || '800', 10),
     webpQuality: parseInt(process.env.SCREENSHOT_WEBP_QUALITY || '80', 10),
   },
+  // Shutterstock Collections cleanup (see cron/shutterstock-cleanup.cron.ts).
+  // ez-api creates these on demand for the "license all images" hand-off; this
+  // service reaps them by age. collectionsEnabled must match ez-api's
+  // SHUTTERSTOCK_COLLECTIONS_ENABLED, and the token must carry collections.edit.
+  shutterstock: {
+    apiToken: process.env.SHUTTERSTOCK_API_TOKEN || '',
+    baseUrl:
+      process.env.SHUTTERSTOCK_BASE_URL || 'https://api.shutterstock.com/v2',
+    collectionsEnabled: process.env.SHUTTERSTOCK_COLLECTIONS_ENABLED === 'true',
+    collectionTtlDays: parseInt(
+      process.env.SHUTTERSTOCK_COLLECTION_TTL_DAYS || '30',
+      10,
+    ),
+  },
+
   RESEND_API_KEY: process.env.RESEND_API_KEY || '',
 });
