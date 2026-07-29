@@ -10,7 +10,7 @@ const OrgSchema = new mongoose.Schema({
       role: { type: String, enum: ['owner', 'admin', 'member'], required: true },
     },
   ],
-  stripeCustomerId: { type: String },
+  paddleCustomerId: { type: String },
   subscriptionId: { type: String },
   plan: { type: String },
   subscriptionStatus: { type: String },
