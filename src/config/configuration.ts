@@ -5,6 +5,9 @@ export default () => ({
       process.env.DATABASE_URL ||
       'mongodb://root:root@127.0.0.1:27017/ez?authSource=admin',
   },
+  // ez-api's base URL. The custom-domain sweep is triggered there rather than
+  // run here, so the plan catalog stays in one place.
+  apiUrl: (process.env.API_URL || 'http://localhost:3000').replace(/\/+$/, ''),
   aws: {
     region: process.env.AWS_REGION || 'us-east-1',
     // Only set when pointing at LocalStack (http://localhost:4566). The AWS SDK
