@@ -94,6 +94,18 @@ export class EmailService {
           )
         );
         break;
+      case "org_invite":
+        await this.send(
+          to,
+          `${body.inviterEmail ?? "Someone"} invited you to ${body.orgName} on EZ Snippet`,
+          this.orgInviteHtml(
+            body.orgName,
+            body.inviterEmail,
+            body.role,
+            body.acceptUrl
+          )
+        );
+        break;
       default:
         this.logger.warn(`Unknown email type: ${body.type}`);
     }
@@ -102,6 +114,11 @@ export class EmailService {
   private async resolveRecipient(
     body: Record<string, any>
   ): Promise<string | null> {
+    // Invites go to someone who may not have an account yet.
+    if (body.type === "org_invite") {
+      return typeof body.email === "string" ? body.email : null;
+    }
+
     // Welcome emails include userId directly
     if (body.userId) {
       const user = await this.userModel.findById(body.userId).exec();
@@ -154,6 +171,23 @@ export class EmailService {
     <p>This link will expire in 1 hour. If you didn't request a password reset, you can safely ignore this email.</p>`;
   }
 
+  // The only template carrying text another customer controls (the team name)
+  // to someone outside that customer's org, so it's escaped.
+  private orgInviteHtml(
+    orgName: string,
+    inviterEmail: string | null,
+    role: string,
+    acceptUrl: string
+  ): string {
+    const who = inviterEmail ? escapeHtml(inviterEmail) : "Someone";
+    const url = escapeHtml(acceptUrl);
+    return `<h1>You're invited to ${escapeHtml(orgName)}</h1>
+    <p>${who} invited you to join <strong>${escapeHtml(orgName)}</strong> on EZ Snippet as ${role === "admin" ? "an admin" : "a member"}.</p>
+    <p><a href="${url}">Accept the invitation</a></p>
+    <p>Or paste this link into your browser: ${url}</p>
+    <p>The link expires in 7 days. Sign in or create an account with this email address to accept it. If you weren't expecting this, you can ignore it.</p>`;
+  }
+
   private subscriptionConfirmedHtml(orgName: string, plan: string): string {
     return `<h1>You're subscribed!</h1>
     <p>Your organization <strong>${orgName}</strong> is now on the <strong>${plan}</strong> plan.</p>
@@ -193,4 +227,13 @@ export class EmailService {
     <p>We were unable to process your payment of <strong>${amountDue} ${currency.toUpperCase()}</strong> for the <strong>${plan}</strong> plan (${orgName}).</p>
     <p>Please update your payment method in your account settings to avoid service interruption.</p>`;
   }
+}
+
+function escapeHtml(value: unknown): string {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
