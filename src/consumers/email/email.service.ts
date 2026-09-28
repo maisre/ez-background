@@ -106,6 +106,20 @@ export class EmailService {
           )
         );
         break;
+      case "org_invite_accepted":
+        await this.send(
+          to,
+          `${body.memberEmail} joined ${body.orgName} on EZ Snippet`,
+          this.orgInviteAcceptedHtml(body.orgName, body.memberEmail, body.role)
+        );
+        break;
+      case "org_member_removed":
+        await this.send(
+          to,
+          `You've been removed from ${body.orgName} on EZ Snippet`,
+          this.orgMemberRemovedHtml(body.orgName)
+        );
+        break;
       default:
         this.logger.warn(`Unknown email type: ${body.type}`);
     }
@@ -171,8 +185,8 @@ export class EmailService {
     <p>This link will expire in 1 hour. If you didn't request a password reset, you can safely ignore this email.</p>`;
   }
 
-  // The only template carrying text another customer controls (the team name)
-  // to someone outside that customer's org, so it's escaped.
+  // Team emails carry text customers control (the team name, the member's
+  // email) and can reach people outside the sender's org, so they're escaped.
   private orgInviteHtml(
     orgName: string,
     inviterEmail: string | null,
@@ -186,6 +200,22 @@ export class EmailService {
     <p><a href="${url}">Accept the invitation</a></p>
     <p>Or paste this link into your browser: ${url}</p>
     <p>The link expires in 7 days. Sign in or create an account with this email address to accept it. If you weren't expecting this, you can ignore it.</p>`;
+  }
+
+  private orgInviteAcceptedHtml(
+    orgName: string,
+    memberEmail: string,
+    role: string
+  ): string {
+    return `<h1>${escapeHtml(memberEmail)} joined ${escapeHtml(orgName)}</h1>
+    <p><strong>${escapeHtml(memberEmail)}</strong> accepted your invitation and joined <strong>${escapeHtml(orgName)}</strong> as ${role === "admin" ? "an admin" : "a member"}.</p>
+    <p>You can manage roles and seats from the Team page.</p>`;
+  }
+
+  private orgMemberRemovedHtml(orgName: string): string {
+    return `<h1>You've been removed from ${escapeHtml(orgName)}</h1>
+    <p>An owner or admin of <strong>${escapeHtml(orgName)}</strong> removed you from the team, so you no longer have access to its pages and layouts. Anything you created there stays with the team.</p>
+    <p>Your personal workspace isn't affected. If you think this was a mistake, contact the team's owner.</p>`;
   }
 
   private subscriptionConfirmedHtml(orgName: string, plan: string): string {
