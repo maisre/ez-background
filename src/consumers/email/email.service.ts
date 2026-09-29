@@ -120,6 +120,17 @@ export class EmailService {
           this.orgMemberRemovedHtml(body.orgName)
         );
         break;
+      case "org_ownership_received":
+        await this.send(
+          to,
+          `You're now the owner of ${body.orgName} on EZ Snippet`,
+          this.orgOwnershipReceivedHtml(
+            body.orgName,
+            body.fromEmail,
+            body.billedToSomeoneElse === true
+          )
+        );
+        break;
       default:
         this.logger.warn(`Unknown email type: ${body.type}`);
     }
@@ -216,6 +227,21 @@ export class EmailService {
     return `<h1>You've been removed from ${escapeHtml(orgName)}</h1>
     <p>An owner or admin of <strong>${escapeHtml(orgName)}</strong> removed you from the team, so you no longer have access to its pages and layouts. Anything you created there stays with the team.</p>
     <p>Your personal workspace isn't affected. If you think this was a mistake, contact the team's owner.</p>`;
+  }
+
+  private orgOwnershipReceivedHtml(
+    orgName: string,
+    fromEmail: string | null,
+    billedToSomeoneElse: boolean
+  ): string {
+    const who = fromEmail ? escapeHtml(fromEmail) : "The previous owner";
+    const billing = billedToSomeoneElse
+      ? `<p>The team's plan is still billed to the previous owner's payment details. To take it over, open <strong>Manage Billing</strong> on the Account page and update the payment method and billing details there.</p>`
+      : "";
+    return `<h1>You're now the owner of ${escapeHtml(orgName)}</h1>
+    <p>${who} made you the owner of <strong>${escapeHtml(orgName)}</strong> on EZ Snippet. They're now an admin.</p>
+    <p>As owner you manage billing, the team plan, custom domains and everyone's roles.</p>
+    ${billing}`;
   }
 
   private subscriptionConfirmedHtml(orgName: string, plan: string): string {
