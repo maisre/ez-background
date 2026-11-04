@@ -42,7 +42,7 @@ export class ScreenshotCron {
 
   private async sweep(model: Model<any>, type: ScreenshotTarget): Promise<void> {
     const debounceMs = this.config.get<number>('screenshot.debounceMs', 240000);
-    const leaseMs = this.config.get<number>('screenshot.leaseMs', 600000);
+    const leaseMs = this.config.get<number>('screenshot.leaseMs', 1800000);
 
     const now = new Date();
     const settledBefore = new Date(now.getTime() - debounceMs);

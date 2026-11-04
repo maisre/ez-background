@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { SqsMessageHandler, SqsConsumerEventHandler } from '@ssut/nestjs-sqs';
 import type { Message } from '@aws-sdk/client-sqs';
+import * as Sentry from '@sentry/nestjs';
 import { Model } from 'mongoose';
 import { ScreenshotService } from './screenshot.service.js';
 import { ScreenshotJob } from './screenshot.types.js';
@@ -45,6 +46,22 @@ export class ScreenshotHandler {
       return;
     }
 
+    // Already captured at this version. The scanner re-enqueues a doc whose
+    // lease expired, so when the queue backs up past leaseMs the same version
+    // gets queued again; without this check each copy rendered, which grew the
+    // backlog further. The staleness guard above can't catch it — the content
+    // hasn't changed, only been shot already.
+    if (
+      doc.screenshotAt &&
+      new Date(doc.screenshotAt).getTime() >=
+        new Date(doc.contentUpdatedAt).getTime()
+    ) {
+      this.logger.log(
+        `Skipping ${job.type} ${job.id}: already captured at ${current}`,
+      );
+      return;
+    }
+
     // orgId comes from the loaded doc, not the job payload, so the key can't be
     // spoofed by a stale/forged message.
     const thumbnailUrl = await this.screenshots.capture(
@@ -64,10 +81,16 @@ export class ScreenshotHandler {
     );
   }
 
+  // sqs-consumer catches handler errors before Nest's filters see them, so
+  // this is the only place a failed render can reach Sentry.
   @SqsConsumerEventHandler('screenshot-queue', 'processing_error')
   onProcessingError(error: Error, message: Message) {
     this.logger.error(
       `Screenshot processing error [${message.MessageId}]: ${error.message}`,
     );
+    Sentry.captureException(error, {
+      tags: { queue: 'screenshot-queue' },
+      extra: { messageId: message.MessageId },
+    });
   }
 }

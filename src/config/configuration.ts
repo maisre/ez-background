@@ -36,8 +36,10 @@ export default () => ({
     // last content edit before we capture it.
     debounceMs: parseInt(process.env.SCREENSHOT_DEBOUNCE_MS || '240000', 10),
     // Lease: if a doc was enqueued but no screenshot landed within this window
-    // (crashed render, lost message), the scanner re-enqueues it.
-    leaseMs: parseInt(process.env.SCREENSHOT_LEASE_MS || '600000', 10),
+    // (crashed render, lost message), the scanner re-enqueues it. 30 min, not
+    // 10: a backlog longer than the lease re-queues every waiting doc, and a
+    // failing message has had its SQS retries well inside this window.
+    leaseMs: parseInt(process.env.SCREENSHOT_LEASE_MS || '1800000', 10),
     // Viewport the page is rendered at — a desktop width so the captured
     // layout is the real desktop site (16:10, matching the dashboard .thumb box).
     viewportWidth: parseInt(process.env.SCREENSHOT_WIDTH || '1280', 10),

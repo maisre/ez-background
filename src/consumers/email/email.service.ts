@@ -1,6 +1,32 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
-import { Resend } from "resend";
+import * as Sentry from "@sentry/nestjs";
+import { Resend, type ErrorResponse } from "resend";
 import { Model } from "mongoose";
+
+/**
+ * Thrown when a send failed for a reason that may clear up on its own. The
+ * handler lets it escape, so SQS keeps the message and redelivers it after the
+ * visibility timeout (and, with a redrive policy, parks it in the DLQ).
+ */
+export class RetryableEmailError extends Error {}
+
+/**
+ * Whether a Resend error is worth retrying.
+ *
+ * Retry: no status (the request never completed), 429 (rate limit and the
+ * daily/monthly quotas), 5xx, and 401/403. The last two are our configuration
+ * — a bad API key or an unverified sending domain — not anything wrong with
+ * this message, so dropping would lose every email until someone noticed;
+ * retrying holds them until the config is fixed.
+ *
+ * Everything else (422 validation_error for a malformed recipient, missing
+ * fields, ...) fails the same way every time, so it is dropped.
+ */
+export function isRetryableResendError(error: ErrorResponse): boolean {
+  const status = error.statusCode;
+  if (status === null || status === undefined) return true;
+  return status === 401 || status === 403 || status === 429 || status >= 500;
+}
 
 interface Org {
   name: string;
@@ -25,7 +51,15 @@ export class EmailService {
     this.resend = new Resend(this.apiKey);
   }
 
-  async handleMessage(body: Record<string, any>): Promise<void> {
+  /**
+   * @param idempotencyKey the SQS message id. Passed to Resend so a redelivery
+   *   after a send that actually went through (e.g. a timeout on the response)
+   *   doesn't email the user twice.
+   */
+  async handleMessage(
+    body: Record<string, any>,
+    idempotencyKey?: string
+  ): Promise<void> {
     const to = await this.resolveRecipient(body);
     if (!to) {
       this.logger.warn(
@@ -37,42 +71,42 @@ export class EmailService {
     switch (body.type) {
       case "welcome_email":
         await this.send(
-          to,
+          { to, idempotencyKey },
           "Welcome to EZ Snippet!",
           this.welcomeHtml(body.email)
         );
         break;
       case "password_reset_email":
         await this.send(
-          to,
+          { to, idempotencyKey },
           "Reset your EZ Snippet password",
           this.passwordResetHtml(body.resetUrl)
         );
         break;
       case "subscription_confirmed":
         await this.send(
-          to,
+          { to, idempotencyKey },
           "Subscription Confirmed",
           this.subscriptionConfirmedHtml(body.orgName, body.plan)
         );
         break;
       case "subscription_canceled":
         await this.send(
-          to,
+          { to, idempotencyKey },
           "Subscription Canceled",
           this.subscriptionCanceledHtml(body.orgName, body.plan)
         );
         break;
       case "subscription_expired":
         await this.send(
-          to,
+          { to, idempotencyKey },
           "Subscription Expired",
           this.subscriptionExpiredHtml(body.orgName, body.plan)
         );
         break;
       case "payment_succeeded":
         await this.send(
-          to,
+          { to, idempotencyKey },
           "Payment Received",
           this.paymentSucceededHtml(
             body.orgName,
@@ -84,7 +118,7 @@ export class EmailService {
         break;
       case "payment_failed":
         await this.send(
-          to,
+          { to, idempotencyKey },
           "Payment Failed",
           this.paymentFailedHtml(
             body.orgName,
@@ -96,7 +130,7 @@ export class EmailService {
         break;
       case "org_invite":
         await this.send(
-          to,
+          { to, idempotencyKey },
           `${body.inviterEmail ?? "Someone"} invited you to ${body.orgName} on EZ Snippet`,
           this.orgInviteHtml(
             body.orgName,
@@ -108,21 +142,21 @@ export class EmailService {
         break;
       case "org_invite_accepted":
         await this.send(
-          to,
+          { to, idempotencyKey },
           `${body.memberEmail} joined ${body.orgName} on EZ Snippet`,
           this.orgInviteAcceptedHtml(body.orgName, body.memberEmail, body.role)
         );
         break;
       case "org_member_removed":
         await this.send(
-          to,
+          { to, idempotencyKey },
           `You've been removed from ${body.orgName} on EZ Snippet`,
           this.orgMemberRemovedHtml(body.orgName)
         );
         break;
       case "org_ownership_received":
         await this.send(
-          to,
+          { to, idempotencyKey },
           `You're now the owner of ${body.orgName} on EZ Snippet`,
           this.orgOwnershipReceivedHtml(
             body.orgName,
@@ -163,41 +197,63 @@ export class EmailService {
     return null;
   }
 
-  private async send(to: string, subject: string, html: string): Promise<void> {
+  private async send(
+    { to, idempotencyKey }: { to: string; idempotencyKey?: string },
+    subject: string,
+    html: string
+  ): Promise<void> {
+    let result: Awaited<ReturnType<Resend["emails"]["send"]>>;
     try {
-      const { data, error } = await this.resend.emails.send({
-        from: this.from,
-        to,
-        subject,
-        html,
-      });
-
-      if (error) {
-        this.logger.error(`Failed to send email to ${to}: ${error.message}`);
-        return;
-      }
-
-      this.logger.log(`Email sent to ${to} (id: ${data?.id})`);
+      result = await this.resend.emails.send(
+        { from: this.from, to, subject, html },
+        idempotencyKey ? { idempotencyKey } : undefined
+      );
     } catch (err) {
-      this.logger.error(`Failed to send email to ${to}`, err);
+      // Thrown rather than returned: the request never completed.
+      throw new RetryableEmailError(
+        `Resend request failed for ${to}: ${String(err)}`
+      );
     }
+
+    const { data, error } = result;
+    if (error) {
+      if (isRetryableResendError(error)) {
+        throw new RetryableEmailError(
+          `Resend ${error.statusCode ?? "no status"} ${error.name} for ${to}: ${error.message}`
+        );
+      }
+      // Permanent: redelivering would fail identically, so report and let the
+      // message be deleted. The recipient stays out of Sentry (no PII there).
+      this.logger.error(
+        `Dropping email "${subject}" to ${to}: ${error.statusCode} ${error.name} — ${error.message}`
+      );
+      Sentry.captureMessage(`Email dropped: Resend ${error.name}`, {
+        level: "error",
+        extra: { statusCode: error.statusCode, message: error.message, subject },
+      });
+      return;
+    }
+
+    this.logger.log(`Email sent to ${to} (id: ${data?.id})`);
   }
 
   private welcomeHtml(username: string): string {
-    return `<h1>Welcome, ${username}!</h1>
+    return `<h1>Welcome, ${escapeHtml(username)}!</h1>
     <p>Thanks for signing up for EZ Snippet. You're all set to start building beautiful pages with drag-and-drop snippets.</p>
     <p>If you have any questions, just reply to this email.</p>`;
   }
 
   private passwordResetHtml(resetUrl: string): string {
+    const url = escapeHtml(resetUrl);
     return `<h1>Reset your password</h1>
     <p>We received a request to reset your EZ Snippet password. Click the link below to choose a new one:</p>
-    <p><a href="${resetUrl}">${resetUrl}</a></p>
+    <p><a href="${url}">${url}</a></p>
     <p>This link will expire in 1 hour. If you didn't request a password reset, you can safely ignore this email.</p>`;
   }
 
-  // Team emails carry text customers control (the team name, the member's
-  // email) and can reach people outside the sender's org, so they're escaped.
+  // Every value below that came from a customer (emails, team/org names) is
+  // escaped: these are sent from our domain, so unescaped HTML in a team name
+  // or a signup email would let anyone send content that looks like ours.
   private orgInviteHtml(
     orgName: string,
     inviterEmail: string | null,
@@ -246,19 +302,19 @@ export class EmailService {
 
   private subscriptionConfirmedHtml(orgName: string, plan: string): string {
     return `<h1>You're subscribed!</h1>
-    <p>Your organization <strong>${orgName}</strong> is now on the <strong>${plan}</strong> plan.</p>
+    <p>Your organization <strong>${escapeHtml(orgName)}</strong> is now on the <strong>${escapeHtml(plan)}</strong> plan.</p>
     <p>You can manage your subscription from your account settings at any time.</p>`;
   }
 
   private subscriptionCanceledHtml(orgName: string, plan: string): string {
     return `<h1>Subscription canceled</h1>
-    <p>Your <strong>${plan}</strong> subscription for <strong>${orgName}</strong> has been canceled and will remain active until the end of your current billing period.</p>
+    <p>Your <strong>${escapeHtml(plan)}</strong> subscription for <strong>${escapeHtml(orgName)}</strong> has been canceled and will remain active until the end of your current billing period.</p>
     <p>You can resubscribe at any time from the pricing page.</p>`;
   }
 
   private subscriptionExpiredHtml(orgName: string, plan: string): string {
     return `<h1>Your subscription has ended</h1>
-    <p>The <strong>${plan}</strong> subscription for <strong>${orgName}</strong> has expired.</p>
+    <p>The <strong>${escapeHtml(plan)}</strong> subscription for <strong>${escapeHtml(orgName)}</strong> has expired.</p>
     <p>Resubscribe to regain access to your plan features.</p>`;
   }
 
@@ -269,7 +325,7 @@ export class EmailService {
     currency: string
   ): string {
     return `<h1>Payment received</h1>
-    <p>We've received your payment of <strong>${amountPaid} ${currency.toUpperCase()}</strong> for the <strong>${plan}</strong> plan (${orgName}).</p>
+    <p>We've received your payment of <strong>${escapeHtml(amountPaid)} ${escapeHtml(String(currency ?? "").toUpperCase())}</strong> for the <strong>${escapeHtml(plan)}</strong> plan (${escapeHtml(orgName)}).</p>
     <p>No action is needed on your part.</p>`;
   }
 
@@ -280,7 +336,7 @@ export class EmailService {
     currency: string
   ): string {
     return `<h1>Payment failed</h1>
-    <p>We were unable to process your payment of <strong>${amountDue} ${currency.toUpperCase()}</strong> for the <strong>${plan}</strong> plan (${orgName}).</p>
+    <p>We were unable to process your payment of <strong>${escapeHtml(amountDue)} ${escapeHtml(String(currency ?? "").toUpperCase())}</strong> for the <strong>${escapeHtml(plan)}</strong> plan (${escapeHtml(orgName)}).</p>
     <p>Please update your payment method in your account settings to avoid service interruption.</p>`;
   }
 }
