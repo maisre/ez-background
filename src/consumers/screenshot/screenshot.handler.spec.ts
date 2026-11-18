@@ -43,4 +43,14 @@ describe('ScreenshotHandler', () => {
     await handler.handleMessage(message());
     expect(capture).toHaveBeenCalledTimes(1);
   });
+
+  it('skips a document deleted or archived after it was queued', async () => {
+    doc.deletedAt = new Date();
+    await handler.handleMessage(message());
+    doc.deletedAt = null;
+    doc.status = 'archived';
+    await handler.handleMessage(message());
+    expect(capture).not.toHaveBeenCalled();
+    expect(updateOne).not.toHaveBeenCalled();
+  });
 });

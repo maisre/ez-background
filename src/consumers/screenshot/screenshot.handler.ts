@@ -34,6 +34,14 @@ export class ScreenshotHandler {
       return;
     }
 
+    // Deleted (soft) or archived after the job was queued. ez-view no longer
+    // serves it, and ez-api removed its thumbnail on delete — rendering now
+    // would either fail into the DLQ or put the file straight back.
+    if (doc.deletedAt || doc.status === 'archived') {
+      this.logger.log(`Skipping ${job.type} ${job.id}: deleted or archived`);
+      return;
+    }
+
     // Staleness guard: a newer edit landed after this job was enqueued. Drop
     // it — a later job already covers the newer state. This is what makes
     // duplicate/superseded messages harmless and completes the debounce: only
